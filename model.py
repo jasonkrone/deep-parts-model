@@ -204,17 +204,17 @@ class Model(object):
   def setup(self):
     """Sets up all components of the computation graph."""
 
-    #self.x, self.y = self.get_xy_placeholders()
-    self.x, self.p1, self.p2, self.y = self.get_placeholders_with_parts()
+    self.x, self.y = self.get_xy_placeholders()
+    #self.x, self.p1, self.p2, self.y = self.get_placeholders_with_parts()
 
     # This context creates variables
     with tf.variable_scope('core', reuse=None):
-      #self.loss, self.gradient_ops = self.train(self.x, self.y)
-      self.loss, self.gradient_ops = self.train_with_parts(self.x, self.p1, self.p2, self.y)
+      self.loss, self.gradient_ops = self.train(self.x, self.y)
+      #self.loss, self.gradient_ops = self.train_with_parts(self.x, self.p1, self.p2, self.y)
     # And this one re-uses them (thus the `reuse=True`)
     with tf.variable_scope('core', reuse=True):
-      #self.y_preds = self.eval(self.x, self.y)
-      self.y_preds = self.eval_with_parts(self.x, self.p1, self.p2, self.y)
+      self.y_preds = self.eval(self.x, self.y)
+      #self.y_preds = self.eval_with_parts(self.x, self.p1, self.p2, self.y)
 
   def training_ops(self, loss):
     opt = self.get_optimizer()
@@ -230,7 +230,7 @@ class Model(object):
 
   def one_step_with_parts(self, sess, x, p1, p2, y):
     outputs = [self.loss, self.gradient_ops]
-    return sess.run(outputs, feed_dict={self.x : x, self.p1 : p1, self.p2 : p2, self.y = y})
+    return sess.run(outputs, feed_dict={self.x : x, self.p1 : p1, self.p2 : p2, self.y : y})
 
   def one_step(self, sess, x, y):
     outputs = [self.loss, self.gradient_ops]

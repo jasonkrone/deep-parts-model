@@ -190,8 +190,11 @@ class Trainer(object):
     np.random.seed(FLAGS.seed)
     for i in xrange(FLAGS.num_episodes):
       # TODO: add parts
-      x, p1, p2, y = birds_data.cubirds_sample_episode_batch(sess, mode='train')
-      outputs = self.model.episode_step_with_parts(sess, x, p1, p2, y, clear_memory=True)
+      #x, p1, p2, y = birds_data.cubirds_sample_episode_batch(sess, mode='train')
+      #outputs = self.model.episode_step_with_parts(sess, x, p1, p2, y, clear_memory=True)
+      x, y = self.sample_episode_batch(
+          train_data, episode_length, episode_width, batch_size)
+      outputs = self.model.episode_step(sess, x, y, clear_memory=True)
       loss = outputs
       losses.append(loss)
 
