@@ -37,10 +37,10 @@ from cubirds_data_generator import BirdsDataGenerator
 
 FLAGS = tf.flags.FLAGS
 
-tf.flags.DEFINE_integer('rep_dim', 128,
+tf.flags.DEFINE_integer('rep_dim', 256,
                         'dimension of keys to use in memory')
-tf.flags.DEFINE_integer('episode_length', 100, 'length of episode')
-tf.flags.DEFINE_integer('episode_width', 5,
+tf.flags.DEFINE_integer('episode_length', 10, 'length of episode')
+tf.flags.DEFINE_integer('episode_width', 200,
                         'number of distinct labels in a single episode')
 tf.flags.DEFINE_integer('memory_size', None, 'number of slots in memory. '
                         'Leave as None to default to episode length')
@@ -62,7 +62,7 @@ tf.flags.DEFINE_bool('use_lsh', False,
 class Trainer(object):
   """Class that takes care of training, validating, and checkpointing model."""
 
-  def __init__(self, train_data, valid_data, input_dim, output_dim=None):
+  def __init__(self, train_data, valid_data, input_dim=(84, 84, 3), output_dim=None):
     self.train_data = train_data
     self.valid_data = valid_data
     self.input_dim = input_dim
@@ -190,10 +190,11 @@ class Trainer(object):
     np.random.seed(FLAGS.seed)
     for i in xrange(FLAGS.num_episodes):
       # TODO: add parts
-      #x, p1, p2, y = birds_data.cubirds_sample_episode_batch(sess, mode='train')
+      x, p1, p2, y = birds_data.cubirds_sample_episode_batch(sess, mode='train')
+      print('x shape:', x.shape, 'y shape:', y.shape)
       #outputs = self.model.episode_step_with_parts(sess, x, p1, p2, y, clear_memory=True)
-      x, y = self.sample_episode_batch(
-          train_data, episode_length, episode_width, batch_size)
+      #x, y = self.sample_episode_batch(
+      #    train_data, episode_length, episode_width, batch_size)
       outputs = self.model.episode_step(sess, x, y, clear_memory=True)
       loss = outputs
       losses.append(loss)
@@ -209,8 +210,9 @@ class Trainer(object):
         correct_by_shot = dict((k, []) for k in xrange(num_shots))
         for _ in xrange(FLAGS.validation_length):
           # TODO: add parts
-          x, y = self.sample_episode_batch(
-              valid_data, episode_length, episode_width, 1)
+          #x, y = self.sample_episode_batch(
+          #    valid_data, episode_length, episode_width, 1)
+          x, p1, p2, y = birds_data.cubirds_sample_episode_batch(sess, mode='val')
           outputs = self.model.episode_predict(
               sess, x, y, clear_memory=True)
           y_preds = outputs
@@ -242,7 +244,8 @@ class Trainer(object):
 
 def main(unused_argv):
   train_data, valid_data = data_utils.get_data()
-  trainer = Trainer(train_data, valid_data, data_utils.IMAGE_NEW_SIZE ** 2)
+  #trainer = Trainer(train_data, valid_data, data_utils.IMAGE_NEW_SIZE ** 2)
+  trainer = Trainer(train_data, valid_data, (84, 84, 3))
   trainer.run()
 
 

@@ -21,6 +21,7 @@ which returns nearest neighbors.
 """
 
 import tensorflow as tf
+import numpy as np
 
 import memory
 
@@ -50,7 +51,7 @@ class LeNet(object):
     self.matrix_init = tf.truncated_normal_initializer(stddev=0.1)
     self.vector_init = tf.constant_initializer(0.0)
 
-  def core_builder(self, x):
+  def core_builder(self, x, is_training):
     """Embeds x using standard CNN architecture.
 
     Args:
@@ -60,61 +61,77 @@ class LeNet(object):
       A 2-d Tensor [batch_size, hidden_dim] of embedded images.
     """
 
-    ch1 = 32 * 2  # number of channels in 1st layer
-    ch2 = 64 * 2  # number of channels in 2nd layer
-    conv1_weights = tf.get_variable('conv1_w',
+    ch1 = 64  # number of channels in 1st layer
+    ch2 = 64  # number of channels in 2nd layer
+    ch3 = 64  # number of channels in 3rd layer
+    ch4 = 64  # number of channels in 4th layer
+
+    with tf.variable_scope('embedder'):
+
+      conv1_weights = tf.get_variable('conv1_w',
                                     [3, 3, self.num_channels, ch1],
                                     initializer=self.matrix_init)
-    conv1_biases = tf.get_variable('conv1_b', [ch1],
+      conv1_biases = tf.get_variable('conv1_b', [ch1],
                                    initializer=self.vector_init)
-    conv1a_weights = tf.get_variable('conv1a_w',
-                                     [3, 3, ch1, ch1],
-                                     initializer=self.matrix_init)
-    conv1a_biases = tf.get_variable('conv1a_b', [ch1],
-                                    initializer=self.vector_init)
 
-    conv2_weights = tf.get_variable('conv2_w', [3, 3, ch1, ch2],
+      conv2_weights = tf.get_variable('conv2_w', [3, 3, ch1, ch2],
                                     initializer=self.matrix_init)
-    conv2_biases = tf.get_variable('conv2_b', [ch2],
+      conv2_biases = tf.get_variable('conv2_b', [ch2],
                                    initializer=self.vector_init)
-    conv2a_weights = tf.get_variable('conv2a_w', [3, 3, ch2, ch2],
-                                     initializer=self.matrix_init)
-    conv2a_biases = tf.get_variable('conv2a_b', [ch2],
-                                    initializer=self.vector_init)
 
-    # fully connected
-    fc1_weights = tf.get_variable(
-        'fc1_w', [self.image_size // 4 * self.image_size // 4 * ch2,
+      conv3_weights = tf.get_variable('conv3_w', [3, 3, ch2, ch3],
+                                    initializer=self.matrix_init)
+      conv3_biases = tf.get_variable('conv3_b', [ch3],
+                                   initializer=self.vector_init)
+
+      conv4_weights = tf.get_variable('conv4_w', [3, 3, ch3, ch4],
+                                    initializer=self.matrix_init)
+      conv4_biases = tf.get_variable('conv4_b', [ch4],
+                                   initializer=self.vector_init)
+
+      # fully connected
+      fc1_weights = tf.get_variable(
+        'fc1_w', [np.ceil(self.image_size / 16.0) * np.ceil(self.image_size / 16.0) * ch4,
                   self.hidden_dim], initializer=self.matrix_init)
-    fc1_biases = tf.get_variable('fc1_b', [self.hidden_dim],
+      fc1_biases = tf.get_variable('fc1_b', [self.hidden_dim],
                                  initializer=self.vector_init)
 
     # define model
-    x = tf.reshape(x,
-                   [-1, self.image_size, self.image_size, self.num_channels])
+    #x = tf.reshape(x,[-1, self.image_size, self.image_size, self.num_channels])
     batch_size = tf.shape(x)[0]
-
     conv1 = tf.nn.conv2d(x, conv1_weights,
                          strides=[1, 1, 1, 1], padding='SAME')
+    conv1=tf.contrib.layers.batch_norm(conv1, center=True, 
+                                      is_training=is_training)
     relu1 = tf.nn.relu(tf.nn.bias_add(conv1, conv1_biases))
-    conv1 = tf.nn.conv2d(relu1, conv1a_weights,
-                         strides=[1, 1, 1, 1], padding='SAME')
-    relu1 = tf.nn.relu(tf.nn.bias_add(conv1, conv1a_biases))
-
     pool1 = tf.nn.max_pool(relu1, ksize=[1, 2, 2, 1],
                            strides=[1, 2, 2, 1], padding='SAME')
 
     conv2 = tf.nn.conv2d(pool1, conv2_weights,
                          strides=[1, 1, 1, 1], padding='SAME')
+    conv2=tf.contrib.layers.batch_norm(conv2, center=True, 
+                                      is_training=is_training)
     relu2 = tf.nn.relu(tf.nn.bias_add(conv2, conv2_biases))
-    conv2 = tf.nn.conv2d(relu2, conv2a_weights,
-                         strides=[1, 1, 1, 1], padding='SAME')
-    relu2 = tf.nn.relu(tf.nn.bias_add(conv2, conv2a_biases))
-
     pool2 = tf.nn.max_pool(relu2, ksize=[1, 2, 2, 1],
                            strides=[1, 2, 2, 1], padding='SAME')
 
-    reshape = tf.reshape(pool2, [batch_size, -1])
+    conv3 = tf.nn.conv2d(pool2, conv3_weights,
+                         strides=[1, 1, 1, 1], padding='SAME')
+    conv3=tf.contrib.layers.batch_norm(conv3, center=True, 
+                                      is_training=is_training)
+    relu3 = tf.nn.relu(tf.nn.bias_add(conv3, conv3_biases))
+    pool3 = tf.nn.max_pool(relu3, ksize=[1, 2, 2, 1],
+                           strides=[1, 2, 2, 1], padding='SAME')
+
+    conv4 = tf.nn.conv2d(pool3, conv4_weights,
+                         strides=[1, 1, 1, 1], padding='SAME')
+    conv4=tf.contrib.layers.batch_norm(conv4, center=True, 
+                                      is_training=is_training)
+    relu4 = tf.nn.relu(tf.nn.bias_add(conv4, conv4_biases))
+    pool4 = tf.nn.max_pool(relu4, ksize=[1, 2, 2, 1],
+                           strides=[1, 2, 2, 1], padding='SAME')
+
+    reshape = tf.reshape(pool4, [batch_size, -1])
     hidden = tf.matmul(reshape, fc1_weights) + fc1_biases
 
     return hidden
@@ -133,11 +150,16 @@ class Model(object):
     self.learning_rate = learning_rate
     self.use_lsh = use_lsh
 
-    self.embedder = self.get_embedder()
+    #self.embedder = self.get_embedder()
+    self.embedder = self.get_embedder_with_parts()
     self.memory = self.get_memory()
     self.classifier = self.get_classifier()
 
     self.global_step = tf.train.get_or_create_global_step()
+
+  def get_embedder_with_parts(self):
+    h, w, c = self.input_dim
+    return LeNet(int(h), c, self.rep_dim)
 
   def get_embedder(self):
     return LeNet(int(self.input_dim ** 0.5), 1, self.rep_dim)
@@ -151,7 +173,6 @@ class Model(object):
 
   def core_builder_with_parts(self, x, p1, p2, y, keep_prob, use_recent_idx=True):
     #embeddings = self.embedder.core_builder(x)
-    # TODO:
     embeddings = self.embedder.core_builder_with_parts(x, p1, p2)
     if keep_prob < 1.0:
       embeddings = tf.nn.dropout(embeddings, keep_prob)
@@ -162,7 +183,7 @@ class Model(object):
     return loss + teacher_loss, y_pred
 
   def core_builder(self, x, y, keep_prob, use_recent_idx=True):
-    embeddings = self.embedder.core_builder(x)
+    embeddings = self.embedder.core_builder(x, self.is_training)
     if keep_prob < 1.0:
       embeddings = tf.nn.dropout(embeddings, keep_prob)
     memory_val, _, teacher_loss = self.memory.query(
@@ -198,13 +219,15 @@ class Model(object):
     return (x_ph, p1_ph, p2_ph, y_ph)
 
   def get_xy_placeholders(self):
-    return (tf.placeholder(tf.float32, [None, self.input_dim]),
+    shape = [None] + list(self.input_dim)
+    return (tf.placeholder(tf.float32, shape),
             tf.placeholder(tf.int32, [None]))
 
   def setup(self):
     """Sets up all components of the computation graph."""
 
     self.x, self.y = self.get_xy_placeholders()
+    self.is_training = tf.placeholder(tf.bool)
     #self.x, self.p1, self.p2, self.y = self.get_placeholders_with_parts()
 
     # This context creates variables
@@ -271,7 +294,7 @@ class Model(object):
 
     losses = []
     for xx, yy in zip(x, y):
-      out = sess.run(outputs, feed_dict={self.x: xx, self.y: yy})
+      out = sess.run(outputs, feed_dict={self.x: xx, self.y: yy, self.is_training : True})
       loss = out[0]
       losses.append(loss)
 
@@ -339,7 +362,7 @@ class Model(object):
     outputs = [self.y_preds]
     y_preds = []
     for xx, yy in zip(x, y):
-      out = sess.run(outputs, feed_dict={self.x: xx, self.y: yy})
+      out = sess.run(outputs, feed_dict={self.x: xx, self.y: yy, self.is_training : False})
       y_pred = out[0]
       y_preds.append(y_pred)
 

@@ -2,25 +2,26 @@ import tensorflow as tf
 import os
 import glob
 from tf_classification.preprocessing.decode_example import decode_serialized_example
-
+import numpy as np 
 
 class BirdsDataGenerator(object):
     """
     this class generates supervised batches
     you must use alternate data generator for few-shot batches
     """
-    def __init__(self, batch_size=32, episode_length=10, image_dim=(244, 244, 3)):
+    def __init__(self, batch_size=16, episode_length=10, image_dim=(84, 84, 3)):
         self.data_dir = '/dvmm-filer2/users/jason/tensorflow_datasets/cub/with_600_val_split/'
         self.handle_placeholder = tf.placeholder(tf.string, shape=[])
         self.batch_size = batch_size
         self.episode_length = episode_length
         self.image_dim = image_dim
         self.num_classes = 200
-        
+        self.load_data()
+
     def cubirds_sample_episode_batch(self, sess, mode='train'):
         """
         Samples a batch of data from cubirds dataset of the shape: batch-size x episode-length x image_dim
-        
+
         sess: session to run when collecting batches
         mode: specifies the data_set split to use (train, val, or test)
         """
@@ -33,7 +34,7 @@ class BirdsDataGenerator(object):
             handle = sess.run(self.test_handle)
         else:
             raise ValueError("mode must be one of: (train, val, or test)")
-        
+
         h, w, c = self.image_dim
         x_shape = [self.batch_size, self.episode_length, h, w, c]
         episodes_x = np.zeros(shape=x_shape)
@@ -44,26 +45,26 @@ class BirdsDataGenerator(object):
         y_shape = [self.batch_size, self.episode_length]
         episodes_y = np.zeros(shape=y_shape)
 
-        feed_dict = {data.handle_placeholder : handle}
+        feed_dict = {self.handle_placeholder : handle}
         for i in xrange(self.batch_size):
-            ep_x, ep_body, ep_head, ep_y = sess.run(data.next_batch, feed_dict=feed_dict)
+            ep_x, ep_body, ep_head, ep_y = sess.run(self.next_batch, feed_dict=feed_dict)
             episodes_x[i] = ep_x
             episodes_body[i] = ep_body
             episodes_head[i] = ep_head
             episodes_y[i] = ep_y
         return episodes_x, episodes_body, episodes_head, episodes_y
-        
+
     def load_data(self):
         train_path = os.path.join(self.data_dir, 'train*')
-        train_data = self.batched_dataset_from_records(train_path, mode='train', batch_size=self.episode_size)
+        train_data = self.batched_dataset_from_records(train_path, mode='train', batch_size=self.episode_length)
         train_iter = train_data.make_one_shot_iterator()
 
         val_path = os.path.join(self.data_dir, 'val*')
-        val_data = self.batched_dataset_from_records(val_path, mode='train', batch_size=self.episode_size)
+        val_data = self.batched_dataset_from_records(val_path, mode='train', batch_size=self.episode_length)
         val_iter = val_data.make_one_shot_iterator()
 
         test_path = os.path.join(self.data_dir, 'test*')
-        test_data = self.batched_dataset_from_records(test_path, mode='test', batch_size=self.episode_size)
+        test_data = self.batched_dataset_from_records(test_path, mode='test', batch_size=self.episode_length)
         test_iter = test_data.make_one_shot_iterator()
 
         # to switch between train and test, set the handle_placeholder value to train_handle or test_handle
