@@ -66,8 +66,7 @@ class LeNet(object):
     ch3 = 64  # number of channels in 3rd layer
     ch4 = 64  # number of channels in 4th layer
 
-    with tf.variable_scope('embedder'):
-
+    with tf.variable_scope('embedder', reuse=tf.AUTO_REUSE):
       conv1_weights = tf.get_variable('conv1_w',
                                     [3, 3, self.num_channels, ch1],
                                     initializer=self.matrix_init)
@@ -173,13 +172,17 @@ class Model(object):
 
   def core_builder_with_parts(self, x, p1, p2, y, keep_prob, use_recent_idx=True):
     #embeddings = self.embedder.core_builder(x)
-    embeddings = self.embedder.core_builder_with_parts(x, p1, p2)
+    embeddings_p1 = self.embedder.core_builder(p1, self.is_training)
+    embeddings_p2 = self.embedder.core_builder(p2, self.is_training)
+    # just treat the part embeddings as extra examples
+    embeddings = tf.concat([embeddings_p1, embeddings_p2], 0)
+    # duplicate the y values so you have the right number
     if keep_prob < 1.0:
       embeddings = tf.nn.dropout(embeddings, keep_prob)
     memory_val, _, teacher_loss = self.memory.query(
         embeddings, y, use_recent_idx=use_recent_idx)
+    # TODO: this classification doesn't vote
     loss, y_pred = self.classifier.core_builder(memory_val, x, y)
-
     return loss + teacher_loss, y_pred
 
   def core_builder(self, x, y, keep_prob, use_recent_idx=True):
@@ -212,9 +215,9 @@ class Model(object):
     return y_preds
 
   def get_placeholders_with_parts(self):
-    x_ph = tf.placeholder(tf.float32, [None, self.input_dim])
-    p1_ph = tf.placeholder(tf.float32, [None, self.input_dim])
-    p2_ph = tf.placeholder(tf.float32, [None, self.input_dim])
+    x_ph = tf.placeholder(tf.float32, [None] + list(self.input_dim))
+    p1_ph = tf.placeholder(tf.float32, [None] + list(self.input_dim))
+    p2_ph = tf.placeholder(tf.float32, [None] + list(self.input_dim))
     y_ph = tf.placeholder(tf.int32, [None])
     return (x_ph, p1_ph, p2_ph, y_ph)
 
@@ -226,18 +229,18 @@ class Model(object):
   def setup(self):
     """Sets up all components of the computation graph."""
 
-    self.x, self.y = self.get_xy_placeholders()
+    #self.x, self.y = self.get_xy_placeholders()
     self.is_training = tf.placeholder(tf.bool)
-    #self.x, self.p1, self.p2, self.y = self.get_placeholders_with_parts()
+    self.x, self.p1, self.p2, self.y = self.get_placeholders_with_parts()
 
     # This context creates variables
     with tf.variable_scope('core', reuse=None):
-      self.loss, self.gradient_ops = self.train(self.x, self.y)
-      #self.loss, self.gradient_ops = self.train_with_parts(self.x, self.p1, self.p2, self.y)
+      #self.loss, self.gradient_ops = self.train(self.x, self.y)
+      self.loss, self.gradient_ops = self.train_with_parts(self.x, self.p1, self.p2, self.y)
     # And this one re-uses them (thus the `reuse=True`)
     with tf.variable_scope('core', reuse=True):
-      self.y_preds = self.eval(self.x, self.y)
-      #self.y_preds = self.eval_with_parts(self.x, self.p1, self.p2, self.y)
+      #self.y_preds = self.eval(self.x, self.y)
+      self.y_preds = self.eval_with_parts(self.x, self.p1, self.p2, self.y)
 
   def training_ops(self, loss):
     opt = self.get_optimizer()
@@ -251,15 +254,15 @@ class Model(object):
     return tf.train.AdamOptimizer(learning_rate=self.learning_rate,
                                   epsilon=1e-4)
 
-  def one_step_with_parts(self, sess, x, p1, p2, y):
+  def one_step_with_parts(self, sess, x, p1, p2, y, is_training):
     outputs = [self.loss, self.gradient_ops]
-    return sess.run(outputs, feed_dict={self.x : x, self.p1 : p1, self.p2 : p2, self.y : y})
+    return sess.run(outputs, feed_dict={self.x : x, self.p1 : p1, self.p2 : p2, self.y : y, self.is_training : is_training})
 
   def one_step(self, sess, x, y):
     outputs = [self.loss, self.gradient_ops]
     return sess.run(outputs, feed_dict={self.x: x, self.y: y})
 
-  def episode_step_with_parts(self, sess, x, p1, p2, y, clear_memory=False):   
+  def episode_step_with_parts(self, sess, x, p1, p2, y, is_training, clear_memory=False):   
     outputs = [self.loss, self.gradient_ops]
 
     if clear_memory:
@@ -267,7 +270,7 @@ class Model(object):
 
     losses = []
     for xx, pp1, pp2, yy in zip(x, p1, p2, y):
-      out = sess.run(outputs, feed_dict={self.x: xx, self.p1 : pp1, self.p2 : pp2, self.y: yy})
+      out = sess.run(outputs, feed_dict={self.x: xx, self.p1 : pp1, self.p2 : pp2, self.y: yy, self.is_training : is_training})
       loss = out[0]
       losses.append(loss)
 
@@ -332,6 +335,45 @@ class Model(object):
     self.memory.set(*cur_memory)
 
     return ret
+
+  def episode_predict_with_parts(self, sess, x, p1, p2, y, is_training, clear_memory=False):
+    """Predict the labels on an episode of examples.
+
+    Args:
+      sess: A Tensorflow Session.
+      x: A list of batches of images.
+      y: A list of labels for the images in x.
+        This allows for updating the memory.
+      clear_memory: Whether to clear the memory before the episode.
+
+    Returns:
+      List of predicted y.
+    """
+
+    # Storing current memory state to restore it after prediction
+    mem_keys, mem_vals, mem_age, _ = self.memory.get()
+    cur_memory = (
+        tf.identity(mem_keys),
+        tf.identity(mem_vals),
+        tf.identity(mem_age),
+        None,
+    )
+
+    if clear_memory:
+      self.clear_memory(sess)
+
+    outputs = [self.y_preds]
+    y_preds = []
+    for xx, pp1, pp2, yy in zip(x, p1, p2, y):
+      out = sess.run(outputs, feed_dict={self.x: xx, self.p1 : pp1, self.p2 : pp2, self.y: yy, self.is_training : False})
+      y_pred = out[0]
+      y_preds.append(y_pred)
+
+    # Restoring memory state
+    self.memory.set(*cur_memory)
+
+    return y_preds
+
 
   def episode_predict(self, sess, x, y, clear_memory=False):
     """Predict the labels on an episode of examples.

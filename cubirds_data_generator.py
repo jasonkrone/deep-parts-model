@@ -42,7 +42,8 @@ class BirdsDataGenerator(object):
         episodes_body = np.zeros(shape=x_shape)
         # heads
         episodes_head = np.zeros(shape=x_shape)
-        y_shape = [self.batch_size, self.episode_length]
+        # we need 1 y per part
+        y_shape = [self.batch_size, self.episode_length*2]
         episodes_y = np.zeros(shape=y_shape)
 
         feed_dict = {self.handle_placeholder : handle}
@@ -51,7 +52,7 @@ class BirdsDataGenerator(object):
             episodes_x[i] = ep_x
             episodes_body[i] = ep_body
             episodes_head[i] = ep_head
-            episodes_y[i] = ep_y
+            episodes_y[i] = np.concatenate([ep_y, ep_y], axis=0)
         return episodes_x, episodes_body, episodes_head, episodes_y
 
     def load_data(self):

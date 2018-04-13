@@ -191,11 +191,10 @@ class Trainer(object):
     for i in xrange(FLAGS.num_episodes):
       # TODO: add parts
       x, p1, p2, y = birds_data.cubirds_sample_episode_batch(sess, mode='train')
-      print('x shape:', x.shape, 'y shape:', y.shape)
-      #outputs = self.model.episode_step_with_parts(sess, x, p1, p2, y, clear_memory=True)
+      outputs = self.model.episode_step_with_parts(sess, x, p1, p2, y, True, clear_memory=True)
       #x, y = self.sample_episode_batch(
       #    train_data, episode_length, episode_width, batch_size)
-      outputs = self.model.episode_step(sess, x, y, clear_memory=True)
+      #outputs = self.model.episode_step(sess, x, y, clear_memory=True)
       loss = outputs
       losses.append(loss)
 
@@ -213,8 +212,8 @@ class Trainer(object):
           #x, y = self.sample_episode_batch(
           #    valid_data, episode_length, episode_width, 1)
           x, p1, p2, y = birds_data.cubirds_sample_episode_batch(sess, mode='val')
-          outputs = self.model.episode_predict(
-              sess, x, y, clear_memory=True)
+          outputs = self.model.episode_predict_with_parts(
+              sess, x, p1, p2, y, False, clear_memory=True)
           y_preds = outputs
           correct.append(self.compute_correct(np.array(y), y_preds))
 
