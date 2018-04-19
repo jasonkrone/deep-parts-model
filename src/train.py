@@ -51,7 +51,7 @@ FLAGS = tf.flags.FLAGS
 
 tf.flags.DEFINE_integer('rep_dim', 256, # should be 256
                         'dimension of keys to use in memory')
-tf.flags.DEFINE_integer('episode_length', 10, 'length of episode') # should be 10
+tf.flags.DEFINE_integer('episode_length', 30, 'length of episode') # should be 10
 tf.flags.DEFINE_integer('episode_width', 5,
                         'number of distinct labels in a single episode')
 tf.flags.DEFINE_integer('memory_size', None, 'number of slots in memory. '
@@ -61,7 +61,7 @@ tf.flags.DEFINE_integer('num_episodes', 100000, 'number of training episodes')
 tf.flags.DEFINE_integer('validation_frequency', 20,
                         'every so many training episodes, '
                         'assess validation accuracy')
-tf.flags.DEFINE_integer('validation_length', 10,
+tf.flags.DEFINE_integer('validation_length', 50,
                         'number of episodes to use to compute '
                         'validation accuracy')
 tf.flags.DEFINE_integer('seed', 888, 'random seed for training sampling')
