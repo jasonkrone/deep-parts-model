@@ -33,10 +33,11 @@ import data_utils
 import model
 
 # added
-from cubirds_data_generator import BirdsDataGenerator
+from cub_fewshot.few_shot_cub_data_generator import FewshotBirdsDataGenerator
 import easy_tf_log
 from easy_tf_log import tflog
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 # pre-trained imagenet inception v3 model checkpoint
 INCEPTION_CKPT = '/home/jason/models/checkpoints/inception_v3.ckpt'
@@ -48,14 +49,14 @@ CURRENT_DIR = os.path.dirname(__file__)
 
 FLAGS = tf.flags.FLAGS
 
-tf.flags.DEFINE_integer('rep_dim', 200, # should be 256
+tf.flags.DEFINE_integer('rep_dim', 256, # should be 256
                         'dimension of keys to use in memory')
-tf.flags.DEFINE_integer('episode_length', 10, 'length of episode')
-tf.flags.DEFINE_integer('episode_width', 200,
+tf.flags.DEFINE_integer('episode_length', 10, 'length of episode') # should be 10
+tf.flags.DEFINE_integer('episode_width', 5,
                         'number of distinct labels in a single episode')
 tf.flags.DEFINE_integer('memory_size', None, 'number of slots in memory. '
                         'Leave as None to default to episode length')
-tf.flags.DEFINE_integer('batch_size', 16, 'batch size')
+tf.flags.DEFINE_integer('batch_size', 16, 'batch size') # should be 16
 tf.flags.DEFINE_integer('num_episodes', 100000, 'number of training episodes')
 tf.flags.DEFINE_integer('validation_frequency', 20,
                         'every so many training episodes, '
@@ -167,7 +168,7 @@ class Trainer(object):
     episode_width, memory_size = self.episode_width, self.memory_size
     batch_size = self.batch_size
     # create data generator
-    birds_data = BirdsDataGenerator(self.batch_size, self.episode_length, image_dim=(299, 299, 3))
+    birds_data = FewshotBirdsDataGenerator(self.batch_size, self.episode_length, self.episode_width, image_dim=(299, 299, 3))
 
     train_size = len(train_data)
     valid_size = len(valid_data)
@@ -195,12 +196,12 @@ class Trainer(object):
 
     saver = tf.train.Saver(max_to_keep=10)
     # for inception
-    ckpt = tf.train.get_checkpoint_state(BIRDS_INCEPTION_CKPT)
+    #ckpt = tf.train.get_checkpoint_state(INCEPTION_CKPT)
     incpt_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='core/InceptionV3')
     incpt_vars = [v for v in incpt_vars if 'Adam' not in v.name]
     incpt_vars = [v for v in incpt_vars if 'BatchNorm' not in v.name]
     incpt_vars = {v.name.split('core/')[1][0:-2] : v for v in incpt_vars}
-    assign_fn = tf.contrib.framework.assign_from_checkpoint_fn(ckpt.model_checkpoint_path, incpt_vars, ignore_missing_vars=True, reshape_variables=False)
+    assign_fn = tf.contrib.framework.assign_from_checkpoint_fn(INCEPTION_CKPT, incpt_vars, ignore_missing_vars=True, reshape_variables=False)
     assign_fn(sess)
 
     ckpt = None
@@ -216,11 +217,12 @@ class Trainer(object):
     np.random.seed(FLAGS.seed)
     for i in xrange(FLAGS.num_episodes):
       # TODO: add parts
-      x, p1, p2, y = birds_data.cubirds_sample_episode_batch(sess, mode='train')
+      x, p1, p2, y = birds_data.sample_episode_batch(birds_data.train_data)
       outputs = self.model.episode_step_with_parts(sess, x, p1, p2, y, True, clear_memory=True)
       #x, y = self.sample_episode_batch(
       #    train_data, episode_length, episode_width, batch_size)
       #outputs = self.model.episode_step(sess, x, y, clear_memory=True)
+      # plot a histogram of the different labels
       loss = outputs
       losses.append(loss)
 
@@ -238,7 +240,7 @@ class Trainer(object):
           # TODO: add parts
           #x, y = self.sample_episode_batch(
           #    valid_data, episode_length, episode_width, 1)
-          x, p1, p2, y = birds_data.cubirds_sample_episode_batch(sess, mode='val')
+          x, p1, p2, y = birds_data.sample_episode_batch(birds_data.val_data)
           outputs = self.model.episode_predict_with_parts(
               sess, x, p1, p2, y, False, clear_memory=True)
           y_preds = outputs

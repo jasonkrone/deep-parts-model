@@ -143,27 +143,26 @@ class LeNet(object):
 
 class InceptionV3(object):
 
-  def __init__(self, image_size, num_channels, hidden_dim, episode_length):
+  def __init__(self, image_size, num_channels, hidden_dim):
     self.image_size = image_size
     self.num_channels = num_channels
     self.hidden_dim = hidden_dim
-    self.episode_length = episode_length
 
   def core_builder(self, x, is_training, reuse=False):
     # these layers are frozen
+    batch_size = tf.shape(x)[0]
     with tf.contrib.framework.arg_scope(inception_v3_arg_scope()):
       # this expects 299 dim input
-      logits, end_points = inception_v3(x, num_classes=200, is_training=is_training, reuse=reuse, create_aux_logits=False)
+      logits, end_points = inception_v3(x, num_classes=None, is_training=is_training, reuse=reuse, create_aux_logits=False)
       # 8x8x2048
       features = end_points['Mixed_7c']
     # these layers are trained
-    #with tf.variable_scope('added_layers', reuse=reuse):
-    #  # 1 x 1 conv with 128 channels
-    #  conv = tf.layers.conv2d(inputs=features, filters=128, kernel_size=[1, 1], padding="same", activation=tf.nn.relu, name='added_1x1conv')
-    #  conv_flat = tf.reshape(conv, [self.episode_length, 8*8*128])
-    #  out = tf.layers.dense(inputs=conv_flat, units=self.hidden_dim, activation=tf.nn.relu, name='added_fc')
-    #return out
-    return logits
+    with tf.variable_scope('added_layers', reuse=reuse):
+      # 1 x 1 conv with 128 channels
+      conv = tf.layers.conv2d(inputs=features, filters=128, kernel_size=[1, 1], padding="same", activation=tf.nn.relu, name='added_1x1conv')
+      conv_flat = tf.reshape(conv, [batch_size, 8*8*128])
+      out = tf.layers.dense(inputs=conv_flat, units=self.hidden_dim, activation=tf.nn.relu, name='added_fc')
+    return out
 
 class Model(object):
   """Model for coordinating between CNN embedder and Memory module."""
@@ -189,7 +188,7 @@ class Model(object):
   def get_embedder_with_parts(self):
     h, w, c = self.input_dim
     #return LeNet(int(h), c, self.rep_dim)
-    return InceptionV3(int(h), c, self.rep_dim, self.episode_length)
+    return InceptionV3(int(h), c, self.rep_dim)
 
   def get_embedder(self):
     return LeNet(int(self.input_dim ** 0.5), 1, self.rep_dim)
