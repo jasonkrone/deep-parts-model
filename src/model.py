@@ -29,6 +29,7 @@ import memory
 import sys
 sys.path.append('/home/jason/models/research/slim/')
 from nets.inception_v3 import inception_v3, inception_v3_arg_scope
+from nets import resnet_v2
 from tensorflow.contrib import slim
 
 FLAGS = tf.flags.FLAGS
@@ -141,6 +142,20 @@ class LeNet(object):
 
     return hidden
 
+class Resnet50(object):
+  def __init__(self, image_size, num_channels, hidden_dim):
+    self.image_size = image_size
+    self.num_channels = num_channels
+    self.hidden_dim = hidden_dim
+
+  def core_builder(self, x, is_training, reuse=False):
+    batch_size = tf.shape(x)[0]
+    with tf.contrib.framework.arg_scope(resnet_v2.resnet_arg_scope()):
+        logits, end_points = resnet_v2.resnet_v2_50(x, num_classes=None, is_training=is_training, reuse=reuse)
+        features = end_points['global_pool'] # batch_size, 1, 1, 2048
+    out = tf.reshape(features, [batch_size, -1])
+    return out
+
 class InceptionV3(object):
 
   def __init__(self, image_size, num_channels, hidden_dim):
@@ -156,12 +171,14 @@ class InceptionV3(object):
       logits, end_points = inception_v3(x, num_classes=None, is_training=is_training, reuse=reuse, create_aux_logits=False)
       # 8x8x2048
       features = end_points['Mixed_7c']
+    out = tf.reshape(features, [batch_size, -1])
+    #  conv_flat = tf.reshape(conv, [batch_size, 8*8*128])
     # these layers are trained
-    with tf.variable_scope('added_layers', reuse=reuse):
-      # 1 x 1 conv with 128 channels
-      conv = tf.layers.conv2d(inputs=features, filters=128, kernel_size=[1, 1], padding="same", activation=tf.nn.relu, name='added_1x1conv')
-      conv_flat = tf.reshape(conv, [batch_size, 8*8*128])
-      out = tf.layers.dense(inputs=conv_flat, units=self.hidden_dim, activation=tf.nn.relu, name='added_fc')
+    #with tf.variable_scope('added_layers', reuse=reuse):
+    # 1 x 1 conv with 128 channels
+    #  conv = tf.layers.conv2d(inputs=features, filters=128, kernel_size=[1, 1], padding="same", activation=tf.nn.relu, name='added_1x1conv')
+    #  conv_flat = tf.reshape(conv, [batch_size, 8*8*128])
+    #  out = tf.layers.dense(inputs=conv_flat, units=self.hidden_dim, activation=tf.nn.relu, name='added_fc')
     return out
 
 class Model(object):
@@ -188,7 +205,10 @@ class Model(object):
   def get_embedder_with_parts(self):
     h, w, c = self.input_dim
     #return LeNet(int(h), c, self.rep_dim)
-    return InceptionV3(int(h), c, self.rep_dim)
+    if FLAGS.use_resnet:
+        return Resnet50(int(h), c, self.rep_dim)
+    else:
+        return InceptionV3(int(h), c, self.rep_dim)
 
   def get_embedder(self):
     return LeNet(int(self.input_dim ** 0.5), 1, self.rep_dim)
@@ -275,7 +295,9 @@ class Model(object):
   def training_ops(self, loss):
     opt = self.get_optimizer()
     params = tf.trainable_variables()
-    params = [v for v in params if 'InceptionV3' not in v.name]
+    # do not train the features from inception or resnet
+    params = [v for v in params if ('InceptionV3' not in v.name) and ('resnet_v2' not in v.name)]
+    print('training params:', params)
     gradients = tf.gradients(loss, params)
     clipped_gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
     return opt.apply_gradients(zip(clipped_gradients, params),

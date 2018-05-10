@@ -24,6 +24,7 @@ Simple command to get up and running:
 import logging
 import os
 import random
+import sys
 
 import numpy as np
 from six.moves import xrange
@@ -39,8 +40,16 @@ from easy_tf_log import tflog
 from datetime import datetime
 import matplotlib.pyplot as plt
 
+sys.path.append('/home/jason/models/research/slim/')
+
+from nets.inception_v3 import inception_v3_arg_scope
+from nets import resnet_v2
+
 # pre-trained imagenet inception v3 model checkpoint
 INCEPTION_CKPT = '/home/jason/models/checkpoints/inception_v3.ckpt'
+
+# pre-trained imagenet resnet 50 model checkpoint
+RESNET_CKPT = '/home/jason/models/checkpoints/resnet_v2_50.ckpt'
 
 # pre-trained imagenet + cubirds model checkpoint
 BIRDS_INCEPTION_CKPT = '/home/jason/cub_image_experiment/logdir'
@@ -49,9 +58,9 @@ CURRENT_DIR = os.path.dirname(__file__)
 
 FLAGS = tf.flags.FLAGS
 
-tf.flags.DEFINE_integer('rep_dim', 256, # should be 256
+tf.flags.DEFINE_integer('rep_dim', 2048, # should be 256
                         'dimension of keys to use in memory')
-tf.flags.DEFINE_integer('episode_length', 30, 'length of episode') # should be 10
+tf.flags.DEFINE_integer('episode_length', 10, 'length of episode') # should be 10
 tf.flags.DEFINE_integer('episode_width', 5,
                         'number of distinct labels in a single episode')
 tf.flags.DEFINE_integer('memory_size', None, 'number of slots in memory. '
@@ -68,6 +77,7 @@ tf.flags.DEFINE_integer('seed', 888, 'random seed for training sampling')
 tf.flags.DEFINE_bool('use_lsh', False,
                      'use locality-sensitive hashing '
                      '(NOTE: not fully tested)')
+tf.flags.DEFINE_bool('use_resnet', True, 'use resnet instead of inception')
 
 # set the log directory to logs/preifx
 date_time = datetime.today().strftime('%Y%m%d_%H%M%S')
@@ -102,7 +112,7 @@ class Trainer(object):
     vocab_size = self.episode_width * self.batch_size
     return model.Model(
         self.input_dim, self.output_dim, self.rep_dim, self.memory_size,
-        vocab_size, use_lsh=self.use_lsh, episode_length=self.episode_length)
+        vocab_size, learning_rate=0.00001, use_lsh=self.use_lsh, episode_length=self.episode_length)
 
   def sample_episode_batch(self, data,
                            episode_length, episode_width, batch_size):
@@ -168,7 +178,7 @@ class Trainer(object):
     episode_width, memory_size = self.episode_width, self.memory_size
     batch_size = self.batch_size
     # create data generator
-    birds_data = FewshotBirdsDataGenerator(self.batch_size, self.episode_length, self.episode_width, image_dim=(299, 299, 3))
+    birds_data = FewshotBirdsDataGenerator(self.batch_size, self.episode_length, self.episode_width, image_dim=input_dim)
 
     train_size = len(train_data)
     valid_size = len(valid_data)
@@ -197,11 +207,14 @@ class Trainer(object):
     saver = tf.train.Saver(max_to_keep=10)
     # for inception
     #ckpt = tf.train.get_checkpoint_state(INCEPTION_CKPT)
-    incpt_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='core/InceptionV3')
+    print('use resnet:', FLAGS.use_resnet)
+    ckpt  = RESNET_CKPT if FLAGS.use_resnet else INCEPTION_CKPT
+    scope = 'core/resnet_v2_50' if FLAGS.use_resnet else 'core/InceptionV3'
+    incpt_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope)
     incpt_vars = [v for v in incpt_vars if 'Adam' not in v.name]
     incpt_vars = [v for v in incpt_vars if 'BatchNorm' not in v.name]
     incpt_vars = {v.name.split('core/')[1][0:-2] : v for v in incpt_vars}
-    assign_fn = tf.contrib.framework.assign_from_checkpoint_fn(INCEPTION_CKPT, incpt_vars, ignore_missing_vars=True, reshape_variables=False)
+    assign_fn = tf.contrib.framework.assign_from_checkpoint_fn(ckpt, incpt_vars, ignore_missing_vars=True, reshape_variables=False)
     assign_fn(sess)
 
     ckpt = None
@@ -277,7 +290,7 @@ class Trainer(object):
 def main(unused_argv):
   train_data, valid_data = data_utils.get_data()
   #trainer = Trainer(train_data, valid_data, data_utils.IMAGE_NEW_SIZE ** 2)
-  trainer = Trainer(train_data, valid_data, (299, 299, 3))
+  trainer = Trainer(train_data, valid_data, (224, 224, 3))
   trainer.run()
 
 
