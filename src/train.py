@@ -60,7 +60,7 @@ FLAGS = tf.flags.FLAGS
 
 tf.flags.DEFINE_integer('rep_dim', 2048, # should be 256
                         'dimension of keys to use in memory')
-tf.flags.DEFINE_integer('episode_length', 10, 'length of episode') # should be 10
+tf.flags.DEFINE_integer('episode_length', 30, 'length of episode') # should be 10, width 
 tf.flags.DEFINE_integer('episode_width', 5,
                         'number of distinct labels in a single episode')
 tf.flags.DEFINE_integer('memory_size', None, 'number of slots in memory. '
@@ -84,7 +84,7 @@ tf.flags.DEFINE_integer('num_parts', 2, 'number of parts to use')
 date_time = datetime.today().strftime('%Y%m%d_%H%M%S')
 prefix = date_time+'_rep_dim_'+str(FLAGS.rep_dim)+'_episode_length_'+str(FLAGS.episode_length) + \
          '_episode_width_'+str(FLAGS.episode_width)+'_batch_size_'+str(FLAGS.batch_size) + \
-         '_num_episodes_'+str(FLAGS.num_episodes)
+         '_num_episodes_'+str(FLAGS.num_episodes)+'_num_parts_'+str(FLAGS.num_parts)
 tf.flags.DEFINE_string('save_dir', os.path.join(CURRENT_DIR, '../checkpoints/'+prefix), 'directory to save model to')
 easy_tf_log.set_dir(os.path.join(CURRENT_DIR, '../logs/'+prefix))
 
@@ -229,12 +229,17 @@ class Trainer(object):
     losses = []
     random.seed(FLAGS.seed)
     np.random.seed(FLAGS.seed)
+    # used for sampling data
+    use_parts = FLAGS.num_parts > 1
     for i in xrange(FLAGS.num_episodes):
       # TODO: add parts
-      x, p1, p2, y = birds_data.sample_episode_batch(birds_data.train_data)
+      x, p1, p2, y = birds_data.sample_episode_batch(birds_data.train_data, use_parts=use_parts)
       #outputs = self.model.episode_step_with_parts(sess, x, p1, p2, y, True, clear_memory=True)
       # TODO: this doesn't make sense
-      parts = [np.concatenate([pp1, pp2], axis=0) for pp1, pp2 in zip(p1, p2)]
+      if FLAGS.num_parts > 1:
+        parts = [np.concatenate([pp1, pp2], axis=0) for pp1, pp2 in zip(p1, p2)]
+      else:
+        parts = x
       #outputs = self.model.episode_step_with_parts(sess, parts, y, True, clear_memory=True)
       outputs = self.model.episode_step_n_parts(sess, parts, y, True, clear_memory=True)
       #x, y = self.sample_episode_batch(
@@ -258,8 +263,11 @@ class Trainer(object):
           # TODO: add parts
           #x, y = self.sample_episode_batch(
           #    valid_data, episode_length, episode_width, 1)
-          x, p1, p2, y = birds_data.sample_episode_batch(birds_data.val_data)
-          parts = [np.concatenate([pp1, pp2], axis=0) for pp1, pp2 in zip(p1, p2)]
+          x, p1, p2, y = birds_data.sample_episode_batch(birds_data.val_data, use_parts=use_parts)
+          if FLAGS.num_parts > 1:
+            parts = [np.concatenate([pp1, pp2], axis=0) for pp1, pp2 in zip(p1, p2)]
+          else:
+            parts = x
           #outputs = self.model.episode_predict_with_parts(
           #    sess, x, p1, p2, y, False, clear_memory=True)
           outputs = self.model.episode_predict_n_parts(sess, parts, y, False, clear_memory=True)
