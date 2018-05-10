@@ -184,7 +184,7 @@ class InceptionV3(object):
 class Model(object):
   """Model for coordinating between CNN embedder and Memory module."""
 
-  def __init__(self, input_dim, output_dim, rep_dim, memory_size, vocab_size,
+  def __init__(self, input_dim, output_dim, rep_dim, memory_size, vocab_size, num_parts=2,
                learning_rate=0.0001, use_lsh=False, episode_length=None):
     self.input_dim = input_dim
     self.output_dim = output_dim
@@ -196,6 +196,7 @@ class Model(object):
     self.episode_length = episode_length
 
     #self.embedder = self.get_embedder()
+    self.num_parts = num_parts
     self.embedder = self.get_embedder_with_parts()
     self.memory = self.get_memory()
     self.classifier = self.get_classifier()
@@ -219,6 +220,24 @@ class Model(object):
 
   def get_classifier(self):
     return BasicClassifier(self.output_dim)
+
+  def core_builder_n_parts(self, parts, y, keep_prob, use_recent_idx=True):
+    reuse = False
+    embedding_list = []
+    parts = tf.split(parts, self.num_parts) # splits into [p1, p2, ..., pn]
+    for i in xrange(self.num_parts):
+        part_i = parts[i]
+        reuse = True if i > 0 else False
+        embedding_i = self.embedder.core_builder(part_i, self.is_training, reuse=reuse)
+        embedding_list.append(embedding_i)
+    embeddings = tf.concat(embedding_list, 0)
+    if keep_prob < 1.0:
+      embeddings = tf.nn.dropout(embeddings, keep_prob)
+    print('embeddings shape:', tf.shape(embeddings), 'y shape:', tf.shape(y))
+    memory_val, _, teacher_loss = self.memory.query(
+        embeddings, y, use_recent_idx=use_recent_idx)
+    loss, y_pred = self.classifier.core_builder(memory_val, None, None)
+    return loss + teacher_loss, y_pred
 
   def core_builder_with_parts(self, x, p1, p2, y, keep_prob, use_recent_idx=True):
     #embeddings = self.embedder.core_builder(x)
@@ -245,6 +264,11 @@ class Model(object):
 
     return loss + teacher_loss, y_pred
 
+  def train_n_parts(self, parts, y):
+    loss, _ = self.core_builder_n_parts(parts, y, keep_prob=0.3)
+    gradient_ops = self.training_ops(loss)
+    return loss, gradient_ops
+
   def train_with_parts(self, x, p1, p2, y):
     loss, _ = self.core_builder_with_parts(x, p1, p2, y, keep_prob=0.3)
     gradient_ops = self.training_ops(loss)
@@ -255,6 +279,10 @@ class Model(object):
     gradient_ops = self.training_ops(loss)
     return loss, gradient_ops
 
+  def eval_n_parts(self, parts, y):
+    _, y_preds = self.core_builder_n_parts(parts, y, keep_prob=1.0, use_recent_idx=False)
+    return y_preds
+
   def eval_with_parts(self, x, p1, p2, y):
     _, y_preds = self.core_builder_with_parts(x, p1, p2, y, keep_prob=1.0, use_recent_idx=False)
     return y_preds
@@ -263,6 +291,11 @@ class Model(object):
     _, y_preds = self.core_builder(x, y, keep_prob=1.0,
                                    use_recent_idx=False)
     return y_preds
+
+  def get_placeholders_n_parts(self):
+    p_ph = tf.placeholder(tf.float32, [None] + list(self.input_dim))
+    y_ph = tf.placeholder(tf.int32, [None])
+    return (p_ph, y_ph)
 
   def get_placeholders_with_parts(self):
     x_ph = tf.placeholder(tf.float32, [None] + list(self.input_dim))
@@ -281,16 +314,19 @@ class Model(object):
 
     #self.x, self.y = self.get_xy_placeholders()
     self.is_training = tf.placeholder(tf.bool)
-    self.x, self.p1, self.p2, self.y = self.get_placeholders_with_parts()
+    #self.x, self.p1, self.p2, self.y = self.get_placeholders_with_parts()
+    self.p, self.y = self.get_placeholders_n_parts()
 
     # This context creates variables
     with tf.variable_scope('core', reuse=None):
       #self.loss, self.gradient_ops = self.train(self.x, self.y)
-      self.loss, self.gradient_ops = self.train_with_parts(self.x, self.p1, self.p2, self.y)
+      #self.loss, self.gradient_ops = self.train_with_parts(self.x, self.p1, self.p2, self.y)
+      self.loss, self.gradient_ops = self.train_n_parts(self.p, self.y)
     # And this one re-uses them (thus the `reuse=True`)
     with tf.variable_scope('core', reuse=True):
       #self.y_preds = self.eval(self.x, self.y)
-      self.y_preds = self.eval_with_parts(self.x, self.p1, self.p2, self.y)
+      #self.y_preds = self.eval_with_parts(self.x, self.p1, self.p2, self.y)
+      self.y_preds = self.eval_n_parts(self.p, self.y)
 
   def training_ops(self, loss):
     opt = self.get_optimizer()
@@ -306,6 +342,9 @@ class Model(object):
   def get_optimizer(self):
     return tf.train.AdamOptimizer(learning_rate=self.learning_rate,
                                   epsilon=1e-4)
+ 
+  def one_step_n_parts(self, sess, parts, y, is_training):
+    return sess.run(outputs, feed_dict={self.p : parts, self.y : y, self.is_training : is_training})
 
   def one_step_with_parts(self, sess, x, p1, p2, y, is_training):
     outputs = [self.loss, self.gradient_ops]
@@ -314,6 +353,20 @@ class Model(object):
   def one_step(self, sess, x, y):
     outputs = [self.loss, self.gradient_ops]
     return sess.run(outputs, feed_dict={self.x: x, self.y: y})
+
+  def episode_step_n_parts(self, sess, parts, y, is_training, clear_memory=False):   
+    outputs = [self.loss, self.gradient_ops]
+
+    if clear_memory:
+      self.clear_memory(sess)
+
+    losses = []
+    for pp, yy in zip(parts, y):
+      out = sess.run(outputs, feed_dict={self.p: pp, self.y: yy, self.is_training : is_training})
+      loss = out[0]
+      losses.append(loss)
+
+    return losses
 
   def episode_step_with_parts(self, sess, x, p1, p2, y, is_training, clear_memory=False):   
     outputs = [self.loss, self.gradient_ops]
@@ -388,6 +441,44 @@ class Model(object):
     self.memory.set(*cur_memory)
 
     return ret
+
+  def episode_predict_n_parts(self, sess, parts, y, is_training, clear_memory=False):
+    """Predict the labels on an episode of examples.
+
+    Args:
+      sess: A Tensorflow Session.
+      x: A list of batches of images.
+      y: A list of labels for the images in x.
+        This allows for updating the memory.
+      clear_memory: Whether to clear the memory before the episode.
+
+    Returns:
+      List of predicted y.
+    """
+
+    # Storing current memory state to restore it after prediction
+    mem_keys, mem_vals, mem_age, _ = self.memory.get()
+    cur_memory = (
+        tf.identity(mem_keys),
+        tf.identity(mem_vals),
+        tf.identity(mem_age),
+        None,
+    )
+
+    if clear_memory:
+      self.clear_memory(sess)
+
+    outputs = [self.y_preds]
+    y_preds = []
+    for pp, yy in zip(parts, y):
+      out = sess.run(outputs, feed_dict={self.p : pp, self.y: yy, self.is_training : False})
+      y_pred = out[0]
+      y_preds.append(y_pred)
+
+    # Restoring memory state
+    self.memory.set(*cur_memory)
+
+    return y_preds
 
   def episode_predict_with_parts(self, sess, x, p1, p2, y, is_training, clear_memory=False):
     """Predict the labels on an episode of examples.

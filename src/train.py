@@ -78,6 +78,7 @@ tf.flags.DEFINE_bool('use_lsh', False,
                      'use locality-sensitive hashing '
                      '(NOTE: not fully tested)')
 tf.flags.DEFINE_bool('use_resnet', True, 'use resnet instead of inception')
+tf.flags.DEFINE_integer('num_parts', 2, 'number of parts to use')
 
 # set the log directory to logs/preifx
 date_time = datetime.today().strftime('%Y%m%d_%H%M%S')
@@ -111,8 +112,8 @@ class Trainer(object):
     # could go into the memory key-value storage
     vocab_size = self.episode_width * self.batch_size
     return model.Model(
-        self.input_dim, self.output_dim, self.rep_dim, self.memory_size,
-        vocab_size, learning_rate=0.00001, use_lsh=self.use_lsh, episode_length=self.episode_length)
+        self.input_dim, self.output_dim, self.rep_dim, self.memory_size, 
+        vocab_size, num_parts=FLAGS.num_parts, learning_rate=0.00001, use_lsh=self.use_lsh, episode_length=self.episode_length)
 
   def sample_episode_batch(self, data,
                            episode_length, episode_width, batch_size):
@@ -158,7 +159,7 @@ class Trainer(object):
 
     return ([np.array(xx).astype('float32') for xx in episodes_x],
             [np.array(yy).astype('int32') for yy in episodes_y]) 
-    
+
   def compute_correct(self, ys, y_preds):
     return np.mean(np.equal(y_preds, np.array(ys)))
 
@@ -231,7 +232,11 @@ class Trainer(object):
     for i in xrange(FLAGS.num_episodes):
       # TODO: add parts
       x, p1, p2, y = birds_data.sample_episode_batch(birds_data.train_data)
-      outputs = self.model.episode_step_with_parts(sess, x, p1, p2, y, True, clear_memory=True)
+      #outputs = self.model.episode_step_with_parts(sess, x, p1, p2, y, True, clear_memory=True)
+      # TODO: this doesn't make sense
+      parts = [np.concatenate([pp1, pp2], axis=0) for pp1, pp2 in zip(p1, p2)]
+      #outputs = self.model.episode_step_with_parts(sess, parts, y, True, clear_memory=True)
+      outputs = self.model.episode_step_n_parts(sess, parts, y, True, clear_memory=True)
       #x, y = self.sample_episode_batch(
       #    train_data, episode_length, episode_width, batch_size)
       #outputs = self.model.episode_step(sess, x, y, clear_memory=True)
@@ -254,8 +259,10 @@ class Trainer(object):
           #x, y = self.sample_episode_batch(
           #    valid_data, episode_length, episode_width, 1)
           x, p1, p2, y = birds_data.sample_episode_batch(birds_data.val_data)
-          outputs = self.model.episode_predict_with_parts(
-              sess, x, p1, p2, y, False, clear_memory=True)
+          parts = [np.concatenate([pp1, pp2], axis=0) for pp1, pp2 in zip(p1, p2)]
+          #outputs = self.model.episode_predict_with_parts(
+          #    sess, x, p1, p2, y, False, clear_memory=True)
+          outputs = self.model.episode_predict_n_parts(sess, parts, y, False, clear_memory=True)
           y_preds = outputs
           correct.append(self.compute_correct(np.array(y), y_preds))
 
